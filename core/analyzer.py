@@ -11,7 +11,7 @@ class MarketAnalyzer:
     
     @staticmethod
     def parse_candle(candle: List) -> Dict:
-        """Parse OKX candle data.
+        """Parse candle data from API.
         
         Args:
             candle: [timestamp, open, high, low, close, volume, ...]
@@ -25,7 +25,7 @@ class MarketAnalyzer:
             'high': float(candle[2]),
             'low': float(candle[3]),
             'close': float(candle[4]),
-            'volume': float(candle[5]),
+            'volume': float(candle[5]) if len(candle) > 5 else 0.0,
         }
     
     @staticmethod
@@ -43,7 +43,6 @@ class MarketAnalyzer:
         
         closes = [c['close'] for c in candles]
         current = closes[-1]
-        previous = closes[-2]
         
         # Simple trend: price above or below moving average
         sma = statistics.mean(closes[-10:]) if len(closes) >= 10 else statistics.mean(closes)
@@ -83,6 +82,46 @@ class MarketAnalyzer:
             return 1.0
         
         return current_volume / avg_volume
+    
+    @staticmethod
+    def detect_spike(candles: List[Dict], lookback: int = 20) -> Tuple[bool, float]:
+        """Detect price spike (sudden volume and volatility increase).
+        
+        Args:
+            candles: List of candle data
+            lookback: Number of candles to look back
+            
+        Returns:
+            (has_spike, spike_strength_0_to_1)
+        """
+        if len(candles) < 2:
+            return False, 0.0
+        
+        # Calculate recent volatility
+        recent = candles[-lookback:]
+        closes = [c['close'] for c in recent]
+        volumes = [c['volume'] for c in recent]
+        
+        # Current candle
+        current_close = candles[-1]['close']
+        previous_close = candles[-2]['close']
+        current_volume = candles[-1]['volume']
+        
+        # Average values
+        avg_volume = statistics.mean(volumes[:-1]) if len(volumes) > 1 else 0
+        avg_volatility = statistics.stdev([abs(closes[i] - closes[i-1]) for i in range(1, len(closes))]) if len(closes) > 1 else 0
+        
+        # Current volatility
+        current_volatility = abs(current_close - previous_close)
+        
+        # Spike detection
+        volume_spike = current_volume > (avg_volume * 1.5) if avg_volume > 0 else False
+        volatility_spike = current_volatility > (avg_volatility * 1.5) if avg_volatility > 0 else False
+        
+        has_spike = volume_spike and volatility_spike
+        spike_strength = min((current_volume / avg_volume) * (current_volatility / avg_volatility) / 4 if avg_volume > 0 and avg_volatility > 0 else 0, 1.0)
+        
+        return has_spike, spike_strength
     
     @staticmethod
     def detect_market_structure(candles: List[Dict]) -> str:
@@ -132,7 +171,7 @@ class MarketAnalyzer:
             lookback: Number of candles for calculation
             
         Returns:
-            Volatility as percentage
+            Volatility as decimal
         """
         if len(candles) < 2:
             return 0.0
@@ -149,7 +188,7 @@ class MarketAnalyzer:
             return 0.0
         
         volatility = statistics.stdev(returns)
-        return abs(volatility)  # Convert to percentage
+        return abs(volatility)
     
     @staticmethod
     def calculate_price_expansion(candles: List[Dict], lookback: int = 20) -> float:
