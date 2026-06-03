@@ -7,21 +7,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
+# Copy requirements FIRST (before code changes)
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies (clean cache)
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip cache purge
 
-# Copy application
+# Copy application code
 COPY . .
 
-# Create directories
+# Create directories for data and logs
 RUN mkdir -p /app/logs /app/data
 
-# Set environment
+# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV ENV=production
 
-# Run bot
+# Run the bot
 CMD ["python", "main.py"]
