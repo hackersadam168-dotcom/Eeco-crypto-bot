@@ -90,7 +90,7 @@ class OKXAPIClient:
                 
                 result = response.json()
                 if result.get('code') != '0':
-                    logger.warning(f"API Error: {result.get('msg')}")
+                    logger.debug(f"API Error: {result.get('msg')}")
                     if attempt < retries - 1:
                         time.sleep(2 ** attempt)  # Exponential backoff
                         continue
@@ -98,19 +98,19 @@ class OKXAPIClient:
                 
                 return result.get('data', [])
             except requests.exceptions.Timeout:
-                logger.warning(f"API Timeout (attempt {attempt + 1}/{retries})")
+                logger.debug(f"API Timeout (attempt {attempt + 1}/{retries})")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                     continue
                 return None
             except requests.exceptions.ConnectionError:
-                logger.warning(f"Connection Error (attempt {attempt + 1}/{retries})")
+                logger.debug(f"Connection Error (attempt {attempt + 1}/{retries})")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                     continue
                 return None
             except Exception as e:
-                logger.error(f"API Request Error: {str(e)}")
+                logger.debug(f"API Request Error: {str(e)}")
                 return None
         
         return None
@@ -134,7 +134,7 @@ class OKXAPIClient:
                 
                 result = response.json()
                 if result.get('code') != '0':
-                    logger.warning(f"API Error: {result.get('msg')}")
+                    logger.debug(f"API Error: {result.get('msg')}")
                     if attempt < retries - 1:
                         time.sleep(2 ** attempt)
                         continue
@@ -142,13 +142,13 @@ class OKXAPIClient:
                 
                 return result.get('data', [])
             except requests.exceptions.Timeout:
-                logger.warning(f"Public API Timeout (attempt {attempt + 1}/{retries})")
+                logger.debug(f"Public API Timeout (attempt {attempt + 1}/{retries})")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                     continue
                 return None
             except Exception as e:
-                logger.error(f"Public API Request Error: {str(e)}")
+                logger.debug(f"Public API Request Error: {str(e)}")
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
                     continue
@@ -181,7 +181,8 @@ class OKXAPIClient:
             ]
             
             logger.info(f"Found {len(usdt_pairs)} USDT perpetual pairs")
-            return sorted(usdt_pairs)[:50]  # Limit to 50 for testing
+            # Return top 100 active pairs for better signal generation
+            return sorted(usdt_pairs)[:100]
         except Exception as e:
             logger.error(f"Error fetching instruments: {str(e)}")
             return []
@@ -225,7 +226,7 @@ class OKXAPIClient:
             # Sort by timestamp ascending
             return sorted(data, key=lambda x: int(x[0]))
         except Exception as e:
-            logger.error(f"Error fetching candles for {inst_id}: {str(e)}")
+            logger.debug(f"Error fetching candles for {inst_id}: {str(e)}")
             return None
     
     def get_ticker(self, inst_id: str) -> Optional[Dict]:
@@ -244,7 +245,7 @@ class OKXAPIClient:
             data = self.get_public(endpoint, params)
             return data[0] if data else None
         except Exception as e:
-            logger.error(f"Error fetching ticker for {inst_id}: {str(e)}")
+            logger.debug(f"Error fetching ticker for {inst_id}: {str(e)}")
             return None
     
     def get_open_interest(self, inst_id: str) -> Optional[Dict]:
@@ -263,7 +264,7 @@ class OKXAPIClient:
             data = self.get_public(endpoint, params)
             return data[0] if data else None
         except Exception as e:
-            logger.error(f"Error fetching OI for {inst_id}: {str(e)}")
+            logger.debug(f"Error fetching OI for {inst_id}: {str(e)}")
             return None
     
     def get_funding_rate(self, inst_id: str) -> Optional[Dict]:
@@ -282,5 +283,5 @@ class OKXAPIClient:
             data = self.get_public(endpoint, params)
             return data[0] if data else None
         except Exception as e:
-            logger.error(f"Error fetching funding rate for {inst_id}: {str(e)}")
+            logger.debug(f"Error fetching funding rate for {inst_id}: {str(e)}")
             return None
