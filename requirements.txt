@@ -1,4 +1,3 @@
-"""Updated requirements with CCXT for universal exchange support."""
 python-dotenv==1.0.0
 requests==2.31.0
 python-telegram-bot==20.3
