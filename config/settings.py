@@ -26,7 +26,7 @@ class Settings:
     
     # Bot Configuration
     SCAN_INTERVAL = int(os.getenv('SCAN_INTERVAL', 3600))  # 1 hour
-    CONFIDENCE_THRESHOLD = int(os.getenv('CONFIDENCE_THRESHOLD', 88))
+    CONFIDENCE_THRESHOLD = int(os.getenv('CONFIDENCE_THRESHOLD', 75))  # Lowered from 88 to 75 for better signal generation
     COOLDOWN_HOURS = int(os.getenv('COOLDOWN_HOURS', 6))
     
     # Timeframes (in minutes)
