@@ -19,5 +19,9 @@ COPY . .
 # Create directories
 RUN mkdir -p /app/logs /app/data
 
+# Set environment
+ENV PYTHONUNBUFFERED=1
+ENV ENV=production
+
 # Run bot
 CMD ["python", "main.py"]
