@@ -5,14 +5,14 @@ services:
     build: .
     container_name: eeco-crypto-bot
     environment:
-      - OKX_API_KEY=${OKX_API_KEY}
-      - OKX_API_SECRET=${OKX_API_SECRET}
-      - OKX_API_PASSPHRASE=${OKX_API_PASSPHRASE}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - SCAN_INTERVAL=3600
       - CONFIDENCE_THRESHOLD=88
       - COOLDOWN_HOURS=6
+      - DATABASE_PATH=/app/data/signals.db
+      - LOG_LEVEL=INFO
+      - ENV=production
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
