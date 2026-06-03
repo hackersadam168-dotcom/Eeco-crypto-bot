@@ -1,0 +1,4 @@
+"""Database management module."""
+from database.db_manager import DatabaseManager
+
+__all__ = ['DatabaseManager']
