@@ -21,6 +21,12 @@ class CryptoFuturesBotManager:
     def __init__(self):
         """Initialize bot manager."""
         try:
+            # Validate configuration
+            if not settings.OKX_API_KEY or not settings.OKX_API_SECRET:
+                logger.warning("⚠️ WARNING: OKX API credentials not set! Using public endpoints only.")
+            if not settings.TELEGRAM_BOT_TOKEN:
+                logger.warning("⚠️ WARNING: Telegram bot token not set! Signals won't be sent.")
+            
             self.api_client = OKXAPIClient()
             self.db_manager = DatabaseManager()
             self.signal_engine = SignalEngine(self.db_manager)
@@ -79,7 +85,7 @@ class CryptoFuturesBotManager:
                     # Rate limiting - respect API limits
                     time.sleep(0.05)
                 except Exception as e:
-                    logger.error(f"Error analyzing {pair}: {str(e)}")
+                    logger.debug(f"Error analyzing {pair}: {str(e)}")
                     continue
             
             # Update last scan time
