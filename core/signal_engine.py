@@ -66,7 +66,7 @@ class SignalEngine:
             
             return None
         except Exception as e:
-            logger.error(f"Error analyzing {inst_id}: {str(e)}")
+            logger.debug(f"Error analyzing {inst_id}: {str(e)}")
             return None
     
     def _analyze_timeframe_group(self, inst_id: str, timeframes: List[int], 
@@ -153,7 +153,7 @@ class SignalEngine:
             
             return signal
         except Exception as e:
-            logger.error(f"Error analyzing timeframe group for {inst_id}: {str(e)}")
+            logger.debug(f"Error analyzing timeframe group for {inst_id}: {str(e)}")
             return None
     
     def _analyze_single_timeframe(self, candles: List[Dict]) -> Dict:
@@ -169,6 +169,7 @@ class SignalEngine:
         rvol = self.analyzer.calculate_relative_volume(candles)
         structure = self.analyzer.detect_market_structure(candles)
         volatility = self.analyzer.calculate_volatility(candles)
+        has_spike, spike_strength = self.analyzer.detect_spike(candles)
         
         return {
             'direction': 'BULLISH' if is_bullish else 'BEARISH',
@@ -176,6 +177,8 @@ class SignalEngine:
             'rvol': rvol,
             'structure': structure,
             'volatility': volatility,
+            'has_spike': has_spike,
+            'spike_strength': spike_strength,
         }
     
     def _calculate_scores(self, inst_id: str, tf_analyses: Dict, 
@@ -195,6 +198,10 @@ class SignalEngine:
         avg_rvol = sum(a['rvol'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 1.0
         avg_volatility = sum(a['volatility'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 0.01
         
+        # Check for spikes
+        has_spike = any(a.get('has_spike', False) for a in tf_analyses.values())
+        spike_strength = max([a.get('spike_strength', 0) for a in tf_analyses.values()])
+        
         # Get latest candles for price expansion
         latest_candles = list(tf_data.values())[0] if tf_data else []
         price_change = self.analyzer.calculate_price_expansion(latest_candles) if latest_candles else 0.0
@@ -207,6 +214,7 @@ class SignalEngine:
         scores = {
             'price_expansion': self.scorer.calculate_price_expansion_score(price_change, 0.5),
             'relative_volume': self.scorer.calculate_volume_score(avg_rvol),
+            'spike': self.scorer.calculate_spike_score(has_spike, spike_strength),
             'open_interest': 70.0,  # Default score
             'trend': self.scorer.calculate_trend_score(is_bullish, sum(a['trend_strength'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 0.5),
             'market_structure': self.scorer.calculate_structure_score(list(tf_analyses.values())[0]['structure'] if tf_analyses else 'range', is_bullish),
@@ -237,7 +245,7 @@ class SignalEngine:
             
             return False
         except Exception as e:
-            logger.error(f"Error checking cooldown: {str(e)}")
+            logger.debug(f"Error checking cooldown: {str(e)}")
             return False
     
     def _generate_reason(self, scores: Dict, tf_analyses: Dict) -> List[str]:
@@ -256,26 +264,32 @@ class SignalEngine:
             # Volume reason
             avg_rvol = sum(a['rvol'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 1.0
             if avg_rvol >= settings.VERY_HIGH_RVOL:
-                reasons.append(f"RVOL {avg_rvol:.1f}x above average")
+                reasons.append(f"🔥 RVOL {avg_rvol:.1f}x - Extreme volume spike!")
             elif avg_rvol >= settings.HIGH_RVOL:
-                reasons.append(f"RVOL {avg_rvol:.1f}x above average")
+                reasons.append(f"📈 RVOL {avg_rvol:.1f}x above average")
+            
+            # Spike reason
+            if scores['spike'] >= 80:
+                reasons.append("⚡ Price spike detected with high conviction")
+            elif scores['spike'] >= 70:
+                reasons.append("📊 Price spike detected across timeframes")
             
             # Trend reason
             if scores['trend'] >= 80:
-                reasons.append("Strong trend confirmation")
+                reasons.append("💪 Strong trend confirmation")
             
             # Structure reason
             structure = list(tf_analyses.values())[0]['structure'] if tf_analyses else 'range'
             if structure == 'bullish':
-                reasons.append("Bullish breakout confirmed")
+                reasons.append("📈 Bullish breakout confirmed")
             elif structure == 'bearish':
-                reasons.append("Bearish breakdown confirmed")
+                reasons.append("📉 Bearish breakdown confirmed")
             
             # Multi-TF reason
             if scores['multi_tf_alignment'] >= 80:
-                reasons.append("Multi-timeframe alignment strong")
+                reasons.append("✅ Multi-timeframe alignment strong")
         except Exception as e:
-            logger.error(f"Error generating reason: {str(e)}")
+            logger.debug(f"Error generating reason: {str(e)}")
         
         return reasons if reasons else ["Setup identified"]
     
@@ -291,11 +305,11 @@ class SignalEngine:
         """
         if is_bullish:
             if structure == 'bullish':
-                return "Current market structure favors upside continuation."
+                return "🚀 Strong bullish structure with breakout confirmation. Upside continuation favored."
             else:
-                return "Bullish momentum detected across multiple timeframes."
+                return "📈 Bullish momentum detected across multiple timeframes. Expect upside potential."
         else:
             if structure == 'bearish':
-                return "Bearish participation remains dominant and downside continuation is more likely."
+                return "📉 Bearish structure confirmed with breakdown. Downside continuation likely."
             else:
-                return "Bearish momentum detected across multiple timeframes."
+                return "🔻 Bearish momentum detected. Short opportunity with downside bias."
