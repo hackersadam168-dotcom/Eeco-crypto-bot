@@ -1,7 +1,7 @@
-"""Signal generation engine."""
-from typing import Dict, List, Optional, Tuple
+"""Signal generation engine - Detects BUY LONG and SELL SHORT spikes."""
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
-from core.okx_api import OKXAPIClient
+from core.binance_api import BinanceAPIClient
 from core.analyzer import MarketAnalyzer
 from core.confidence_scorer import ConfidenceScorer
 from database.db_manager import DatabaseManager
@@ -13,48 +13,49 @@ logger = get_logger(__name__)
 class SignalEngine:
     """Generate trading signals based on market analysis."""
     
-    def __init__(self, db_manager: DatabaseManager = None):
+    def __init__(self, api_client: BinanceAPIClient = None, db_manager: DatabaseManager = None):
         """Initialize signal engine.
         
         Args:
+            api_client: BinanceAPIClient instance
             db_manager: Database manager instance
         """
-        self.api_client = OKXAPIClient()
+        self.api_client = api_client or BinanceAPIClient()
         self.analyzer = MarketAnalyzer()
         self.scorer = ConfidenceScorer()
         self.db = db_manager or DatabaseManager()
     
-    def analyze_pair(self, inst_id: str) -> Optional[Dict]:
+    def analyze_pair(self, symbol: str) -> Optional[Dict]:
         """Analyze a single trading pair across timeframes.
         
         Args:
-            inst_id: Instrument ID
+            symbol: Trading symbol (e.g., 'BTCUSDT')
             
         Returns:
             Signal dict or None
         """
         try:
-            # Fetch market data
-            ticker = self.api_client.get_ticker(inst_id)
+            # Fetch current price
+            ticker = self.api_client.get_ticker(symbol)
             if not ticker:
                 return None
             
-            current_price = float(ticker.get('last', 0))
+            current_price = float(ticker.get('lastPrice', 0))
             if current_price == 0:
                 return None
             
-            # Analyze intraday (15m, 1H)
+            # Analyze intraday (15m, 1h)
             intraday_signal = self._analyze_timeframe_group(
-                inst_id,
-                settings.INTRADAY_TIMEFRAMES,
+                symbol,
+                settings.INTRADAY_INTERVALS,
                 'INTRADAY',
                 current_price
             )
             
-            # Analyze swing (4H, 1D)
+            # Analyze swing (4h, 1d)
             swing_signal = self._analyze_timeframe_group(
-                inst_id,
-                settings.SWING_TIMEFRAMES,
+                symbol,
+                settings.SWING_INTERVALS,
                 'SWING',
                 current_price
             )
@@ -66,16 +67,16 @@ class SignalEngine:
             
             return None
         except Exception as e:
-            logger.debug(f"Error analyzing {inst_id}: {str(e)}")
+            logger.debug(f"Error analyzing {symbol}: {str(e)}")
             return None
     
-    def _analyze_timeframe_group(self, inst_id: str, timeframes: List[int], 
-                                 signal_type: str, current_price: float) -> Optional[Dict]:
+    def _analyze_timeframe_group(self, symbol: str, intervals: List[str], 
+                                  signal_type: str, current_price: float) -> Optional[Dict]:
         """Analyze multiple timeframes for a signal.
         
         Args:
-            inst_id: Instrument ID
-            timeframes: List of timeframes to analyze
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+            intervals: List of timeframe intervals ['15m', '1h']
             signal_type: 'INTRADAY' or 'SWING'
             current_price: Current price
             
@@ -85,24 +86,20 @@ class SignalEngine:
         try:
             # Fetch candles for each timeframe
             tf_data = {}
-            for tf in timeframes:
-                candles = self.api_client.get_candles(inst_id, tf, limit=50)
+            for interval in intervals:
+                candles = self.api_client.get_candles(symbol, interval, limit=50)
                 if candles:
-                    tf_data[tf] = [self.analyzer.parse_candle(c) for c in candles]
+                    tf_data[interval] = candles
             
             if not tf_data:
                 return None
             
             # Analyze each timeframe
             tf_analyses = {}
-            for tf, candles in tf_data.items():
-                tf_analyses[tf] = self._analyze_single_timeframe(candles)
+            for interval, candles in tf_data.items():
+                tf_analyses[interval] = self._analyze_single_timeframe(candles)
             
-            # Calculate multi-timeframe alignment
-            aligned_count = sum(1 for analysis in tf_analyses.values() 
-                               if analysis.get('direction') in ['BULLISH', 'BEARISH'])
-            
-            # Determine signal direction
+            # Determine signal direction (majority vote)
             bullish_count = sum(1 for a in tf_analyses.values() if a.get('direction') == 'BULLISH')
             bearish_count = sum(1 for a in tf_analyses.values() if a.get('direction') == 'BEARISH')
             
@@ -116,7 +113,7 @@ class SignalEngine:
                 return None
             
             # Calculate confidence scores
-            scores = self._calculate_scores(inst_id, tf_analyses, is_bullish, tf_data)
+            scores = self._calculate_scores(symbol, tf_analyses, is_bullish, tf_data)
             confidence = self.scorer.calculate_overall_confidence(scores)
             
             # Check if signal meets threshold
@@ -124,36 +121,35 @@ class SignalEngine:
                 return None
             
             # Check cooldown
-            if self._is_on_cooldown(inst_id, signal_direction):
+            if self._is_on_cooldown(symbol, signal_direction):
                 return None
             
             # Get risk level
             latest_candles = list(tf_data.values())[0]
             volatility = self.analyzer.calculate_volatility(latest_candles)
-            oi_change = 0  # TODO: Get from API
             structure = self.analyzer.detect_market_structure(latest_candles)
-            risk_level = self.analyzer.get_risk_level(volatility, oi_change, structure)
+            risk_level = self.analyzer.get_risk_level(volatility, 0.0, structure)
             
             # Generate reason and bot view
             reason = self._generate_reason(scores, tf_analyses)
             bot_view = self._generate_bot_view(is_bullish, structure)
             
             signal = {
-                'coin': inst_id.replace('-USDT-SWAP', '').replace('-SWAP', ''),
+                'coin': symbol.replace('USDT', ''),
                 'action': signal_direction,
                 'type': signal_type,
-                'confidence': confidence,
+                'confidence': int(confidence),
                 'risk': risk_level,
                 'reason': reason,
                 'bot_view': bot_view,
                 'price': current_price,
-                'timeframe_group': f"{timeframes[0]}m/{timeframes[-1]}m",
+                'timeframe_group': f"{'/'.join(settings.INTRADAY_INTERVALS)}/{'/'.join(settings.SWING_INTERVALS)}",
                 'timestamp': datetime.utcnow().isoformat(),
             }
             
             return signal
         except Exception as e:
-            logger.debug(f"Error analyzing timeframe group for {inst_id}: {str(e)}")
+            logger.debug(f"Error analyzing timeframe group for {symbol}: {str(e)}")
             return None
     
     def _analyze_single_timeframe(self, candles: List[Dict]) -> Dict:
@@ -181,12 +177,12 @@ class SignalEngine:
             'spike_strength': spike_strength,
         }
     
-    def _calculate_scores(self, inst_id: str, tf_analyses: Dict, 
-                         is_bullish: bool, tf_data: Dict) -> Dict:
+    def _calculate_scores(self, symbol: str, tf_analyses: Dict, 
+                          is_bullish: bool, tf_data: Dict) -> Dict:
         """Calculate component confidence scores.
         
         Args:
-            inst_id: Instrument ID
+            symbol: Trading symbol
             tf_analyses: Timeframe analysis results
             is_bullish: True if bullish signal
             tf_data: Raw timeframe data
@@ -215,20 +211,19 @@ class SignalEngine:
             'price_expansion': self.scorer.calculate_price_expansion_score(price_change, 0.5),
             'relative_volume': self.scorer.calculate_volume_score(avg_rvol),
             'spike': self.scorer.calculate_spike_score(has_spike, spike_strength),
-            'open_interest': 70.0,  # Default score
+            'open_interest': 70.0,
             'trend': self.scorer.calculate_trend_score(is_bullish, sum(a['trend_strength'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 0.5),
             'market_structure': self.scorer.calculate_structure_score(list(tf_analyses.values())[0]['structure'] if tf_analyses else 'range', is_bullish),
             'breakout_strength': self.scorer.calculate_breakout_score(max(a['trend_strength'] for a in tf_analyses.values()) if tf_analyses else 0.5),
-            'multi_tf_alignment': self.scorer.calculate_multi_tf_score(aligned, len(tf_analyses) if tf_analyses else 1),
         }
         
         return scores
     
-    def _is_on_cooldown(self, inst_id: str, action: str) -> bool:
+    def _is_on_cooldown(self, symbol: str, action: str) -> bool:
         """Check if signal is on cooldown.
         
         Args:
-            inst_id: Instrument ID
+            symbol: Trading symbol
             action: Signal action
             
         Returns:
@@ -236,7 +231,7 @@ class SignalEngine:
         """
         try:
             cutoff_time = datetime.utcnow() - timedelta(hours=settings.COOLDOWN_HOURS)
-            last_signal = self.db.get_last_signal(inst_id, action)
+            last_signal = self.db.get_last_signal(symbol.replace('USDT', ''), action)
             
             if last_signal:
                 signal_time = datetime.fromisoformat(last_signal[10].replace('Z', '+00:00'))
@@ -284,10 +279,6 @@ class SignalEngine:
                 reasons.append("📈 Bullish breakout confirmed")
             elif structure == 'bearish':
                 reasons.append("📉 Bearish breakdown confirmed")
-            
-            # Multi-TF reason
-            if scores['multi_tf_alignment'] >= 80:
-                reasons.append("✅ Multi-timeframe alignment strong")
         except Exception as e:
             logger.debug(f"Error generating reason: {str(e)}")
         
