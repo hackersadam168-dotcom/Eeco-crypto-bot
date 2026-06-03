@@ -39,7 +39,9 @@ class SignalEngine:
             if not ticker:
                 return None
             
-            current_price = float(ticker['last'])
+            current_price = float(ticker.get('last', 0))
+            if current_price == 0:
+                return None
             
             # Analyze intraday (15m, 1H)
             intraday_signal = self._analyze_timeframe_group(
@@ -137,7 +139,7 @@ class SignalEngine:
             bot_view = self._generate_bot_view(is_bullish, structure)
             
             signal = {
-                'coin': inst_id.replace('-USDT-SWAP', ''),
+                'coin': inst_id.replace('-USDT-SWAP', '').replace('-SWAP', ''),
                 'action': signal_direction,
                 'type': signal_type,
                 'confidence': confidence,
@@ -190,12 +192,12 @@ class SignalEngine:
             Scores dict
         """
         # Average scores across timeframes
-        avg_rvol = sum(a['rvol'] for a in tf_analyses.values()) / len(tf_analyses)
-        avg_volatility = sum(a['volatility'] for a in tf_analyses.values()) / len(tf_analyses)
+        avg_rvol = sum(a['rvol'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 1.0
+        avg_volatility = sum(a['volatility'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 0.01
         
         # Get latest candles for price expansion
-        latest_candles = list(tf_data.values())[0]
-        price_change = self.analyzer.calculate_price_expansion(latest_candles)
+        latest_candles = list(tf_data.values())[0] if tf_data else []
+        price_change = self.analyzer.calculate_price_expansion(latest_candles) if latest_candles else 0.0
         
         # Count multi-timeframe alignment
         aligned = sum(1 for a in tf_analyses.values() 
@@ -205,11 +207,11 @@ class SignalEngine:
         scores = {
             'price_expansion': self.scorer.calculate_price_expansion_score(price_change, 0.5),
             'relative_volume': self.scorer.calculate_volume_score(avg_rvol),
-            'open_interest': 70.0,  # TODO: Calculate from API
-            'trend': self.scorer.calculate_trend_score(is_bullish, sum(a['trend_strength'] for a in tf_analyses.values()) / len(tf_analyses)),
-            'market_structure': self.scorer.calculate_structure_score(list(tf_analyses.values())[0]['structure'], is_bullish),
-            'breakout_strength': self.scorer.calculate_breakout_score(max(a['trend_strength'] for a in tf_analyses.values())),
-            'multi_tf_alignment': self.scorer.calculate_multi_tf_score(aligned, len(tf_analyses)),
+            'open_interest': 70.0,  # Default score
+            'trend': self.scorer.calculate_trend_score(is_bullish, sum(a['trend_strength'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 0.5),
+            'market_structure': self.scorer.calculate_structure_score(list(tf_analyses.values())[0]['structure'] if tf_analyses else 'range', is_bullish),
+            'breakout_strength': self.scorer.calculate_breakout_score(max(a['trend_strength'] for a in tf_analyses.values()) if tf_analyses else 0.5),
+            'multi_tf_alignment': self.scorer.calculate_multi_tf_score(aligned, len(tf_analyses) if tf_analyses else 1),
         }
         
         return scores
@@ -224,13 +226,19 @@ class SignalEngine:
         Returns:
             True if on cooldown
         """
-        cutoff_time = datetime.utcnow() - timedelta(hours=settings.COOLDOWN_HOURS)
-        last_signal = self.db.get_last_signal(inst_id, action)
-        
-        if last_signal and last_signal[8] > cutoff_time.isoformat():
-            return True
-        
-        return False
+        try:
+            cutoff_time = datetime.utcnow() - timedelta(hours=settings.COOLDOWN_HOURS)
+            last_signal = self.db.get_last_signal(inst_id, action)
+            
+            if last_signal:
+                signal_time = datetime.fromisoformat(last_signal[10].replace('Z', '+00:00'))
+                if signal_time > cutoff_time:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error checking cooldown: {str(e)}")
+            return False
     
     def _generate_reason(self, scores: Dict, tf_analyses: Dict) -> List[str]:
         """Generate reason bullets for the signal.
@@ -244,27 +252,30 @@ class SignalEngine:
         """
         reasons = []
         
-        # Volume reason
-        avg_rvol = sum(a['rvol'] for a in tf_analyses.values()) / len(tf_analyses)
-        if avg_rvol >= settings.VERY_HIGH_RVOL:
-            reasons.append(f"RVOL {avg_rvol:.1f}x above average")
-        elif avg_rvol >= settings.HIGH_RVOL:
-            reasons.append(f"RVOL {avg_rvol:.1f}x above average")
-        
-        # Trend reason
-        if scores['trend'] >= 80:
-            reasons.append("Strong trend confirmation")
-        
-        # Structure reason
-        structure = list(tf_analyses.values())[0]['structure']
-        if structure == 'bullish':
-            reasons.append("Bullish breakout confirmed")
-        elif structure == 'bearish':
-            reasons.append("Bearish breakdown confirmed")
-        
-        # Multi-TF reason
-        if scores['multi_tf_alignment'] >= 80:
-            reasons.append("Multi-timeframe alignment bullish")
+        try:
+            # Volume reason
+            avg_rvol = sum(a['rvol'] for a in tf_analyses.values()) / len(tf_analyses) if tf_analyses else 1.0
+            if avg_rvol >= settings.VERY_HIGH_RVOL:
+                reasons.append(f"RVOL {avg_rvol:.1f}x above average")
+            elif avg_rvol >= settings.HIGH_RVOL:
+                reasons.append(f"RVOL {avg_rvol:.1f}x above average")
+            
+            # Trend reason
+            if scores['trend'] >= 80:
+                reasons.append("Strong trend confirmation")
+            
+            # Structure reason
+            structure = list(tf_analyses.values())[0]['structure'] if tf_analyses else 'range'
+            if structure == 'bullish':
+                reasons.append("Bullish breakout confirmed")
+            elif structure == 'bearish':
+                reasons.append("Bearish breakdown confirmed")
+            
+            # Multi-TF reason
+            if scores['multi_tf_alignment'] >= 80:
+                reasons.append("Multi-timeframe alignment strong")
+        except Exception as e:
+            logger.error(f"Error generating reason: {str(e)}")
         
         return reasons if reasons else ["Setup identified"]
     

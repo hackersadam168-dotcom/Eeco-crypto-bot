@@ -11,19 +11,21 @@ class Settings:
     # Project root
     BASE_DIR = Path(__file__).parent.parent
     
+    # Environment
+    ENV = os.getenv('ENV', 'development')
+    
     # OKX API Configuration
     OKX_API_KEY = os.getenv('OKX_API_KEY', '')
     OKX_API_SECRET = os.getenv('OKX_API_SECRET', '')
     OKX_API_PASSPHRASE = os.getenv('OKX_API_PASSPHRASE', '')
     OKX_API_URL = 'https://www.okx.com/api/v5'
-    OKX_SANDBOX_URL = 'https://www.okx.com/api/v5'  # Change to sandbox if needed
     
     # Telegram Configuration
     TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
     TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
     
     # Bot Configuration
-    SCAN_INTERVAL = int(os.getenv('SCAN_INTERVAL', 3600))  # 1 hour in seconds
+    SCAN_INTERVAL = int(os.getenv('SCAN_INTERVAL', 3600))  # 1 hour
     CONFIDENCE_THRESHOLD = int(os.getenv('CONFIDENCE_THRESHOLD', 88))
     COOLDOWN_HOURS = int(os.getenv('COOLDOWN_HOURS', 6))
     
@@ -40,11 +42,11 @@ class Settings:
     LOG_FILE = BASE_DIR / 'logs' / 'bot.log'
     
     # Analysis parameters
-    MIN_RVOL = 1.5  # Minimum relative volume
-    HIGH_RVOL = 3.0  # High relative volume threshold
-    VERY_HIGH_RVOL = 5.0  # Very high relative volume
+    MIN_RVOL = 1.5
+    HIGH_RVOL = 3.0
+    VERY_HIGH_RVOL = 5.0
     
-    # Confidence factors (weights)
+    # Confidence weights
     CONFIDENCE_WEIGHTS = {
         'price_expansion': 0.15,
         'relative_volume': 0.20,
@@ -55,7 +57,7 @@ class Settings:
         'multi_tf_alignment': 0.10,
     }
     
-    # Risk classification thresholds
+    # Risk thresholds
     RISK_THRESHOLDS = {
         'low': {'volatility_max': 0.02, 'oi_change_min': 0.10},
         'medium': {'volatility_max': 0.05, 'oi_change_min': 0.05},

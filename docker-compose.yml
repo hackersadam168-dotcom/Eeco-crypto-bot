@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  crypto-bot:
+    build: .
+    container_name: eeco-crypto-bot
+    environment:
+      - OKX_API_KEY=${OKX_API_KEY}
+      - OKX_API_SECRET=${OKX_API_SECRET}
+      - OKX_API_PASSPHRASE=${OKX_API_PASSPHRASE}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - SCAN_INTERVAL=3600
+      - CONFIDENCE_THRESHOLD=88
+      - COOLDOWN_HOURS=6
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: always
+    networks:
+      - crypto-bot-network
+
+networks:
+  crypto-bot-network:
+    driver: bridge
